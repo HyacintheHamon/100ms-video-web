@@ -1,13 +1,9 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { HMSRoomProvider, useHMSStore, selectIsConnectedToRoom, useHMSActions, selectPeers, useVideo, type HMSPeer } from "@100mslive/react-sdk";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { HMSRoomProvider, useHMSStore, selectIsConnectedToRoom, useHMSActions, selectPeers, useVideo, selectRoomState, selectRoom, type HMSPeer } from "@100mslive/react-sdk";
 
-type HMSPeerWithInfo = HMSPeer & {
-  info?: {
-    data?: string;
-  };
-};
+//
 
 function ParticipantVideo({ peer }: { peer: { id: string; name?: string; videoTrack?: string; isLocal?: boolean } }) {
   const { videoRef } = useVideo({
@@ -45,6 +41,38 @@ function ParticipantVideo({ peer }: { peer: { id: string; name?: string; videoTr
   );
 }
 
+// Phase reducer based only on room state + endedAt + wasLive memory
+function useStreamPhase(): "upcoming" | "live" | "ended" {
+  const roomState = useHMSStore(selectRoomState);
+  const room = useHMSStore(selectRoom);
+  const wasLiveRef = useRef(false);
+
+  const isLiveNow = roomState === "Connected";
+  useEffect(() => {
+    if (isLiveNow) wasLiveRef.current = true;
+  }, [isLiveNow]);
+
+  const endedAt = (room as unknown as { endedAt?: string | number | Date } | null | undefined)?.endedAt;
+  const [phase, setPhase] = useState<"upcoming" | "live" | "ended">("upcoming");
+  useEffect(() => {
+    if (endedAt) {
+      setPhase("ended");
+      return;
+    }
+    if (roomState === "Connected") {
+      setPhase("live");
+      return;
+    }
+    if (wasLiveRef.current && (roomState === "Disconnecting" || roomState === "Disconnected")) {
+      setPhase("ended");
+      return;
+    }
+    setPhase("upcoming");
+  }, [roomState, endedAt]);
+
+  return phase;
+}
+
 function HLSViewerContent() {
   const [inputUrl, setInputUrl] = useState(
     "https://liveshopping.app.100ms.live/streaming/meeting/yxj-ztjx-mxy"
@@ -52,10 +80,19 @@ function HLSViewerContent() {
   const [roomId, setRoomId] = useState<string>("");
   const [isConnecting, setIsConnecting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>("");
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   const hmsActions = useHMSActions();
   const isConnected = useHMSStore(selectIsConnectedToRoom);
   const peers = useHMSStore(selectPeers);
+  const phase = useStreamPhase();
+
+  // Leave on unmount to avoid ghost states
+  useEffect(() => {
+    return () => {
+      hmsActions.leave().catch(() => {});
+    };
+  }, [hmsActions]);
 
   // Extract room ID from URL
   function extractRoomId(url: string): string {
@@ -81,6 +118,7 @@ function HLSViewerContent() {
       return;
     }
     
+    setHasLoaded(true);
     setRoomId(extractedRoomCode);
     setIsConnecting(true);
     setErrorMessage("");
@@ -99,8 +137,17 @@ function HLSViewerContent() {
         await hmsActions.join({
           userName: 'HLS Viewer',
           authToken,
+          settings: {
+            isAudioMuted: true,
+            isVideoMuted: true,
+          },
         });
         console.log("[HLS] Joined room successfully");
+        // Force listen-only: immediately disable local media
+        try {
+          await hmsActions.setLocalAudioEnabled(false);
+          await hmsActions.setLocalVideoEnabled(false);
+        } catch {}
       }
       
       setErrorMessage("");
@@ -154,27 +201,72 @@ function HLSViewerContent() {
         )}
       </div>
 
-      {/* Host Video ou Écran d'attente */}
-      {isConnected && (
+      {/* Écrans dépendants de la phase */}
+      {hasLoaded && (
         <div className="w-full max-w-3xl">
           {(() => {
-            // Trouver le host (celui avec le nom "Live Stream Host" ou le rôle host)
-            const host = peers.find(peer => 
-              peer.name === "Live Stream Host" || 
-              peer.roleName === "host" ||
-              (peer as HMSPeerWithInfo).info?.data?.includes('"isHost":true')
-            );
-            
-            if (host) {
+            console.log("[HLS] Render decision phase:", { phase, isConnected, peers: peers.length });
+
+            // Écran de fin de stream
+            if (phase === "ended") {
               return (
-                <div>
-                  <h2 className="text-lg font-semibold mb-4">Stream du Host</h2>
-                  <ParticipantVideo peer={host} />
+                <div className="aspect-video bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 rounded-lg flex items-center justify-center">
+                  <div className="text-center p-8">
+                    <div className="w-20 h-20 bg-gray-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                      <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-2">
+                      Le stream est terminé
+                    </h3>
+                    <p className="text-gray-600 dark:text-gray-400 mb-4">
+                      Merci d&apos;avoir regardé le stream !
+                    </p>
+                    <div className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                      Vous pouvez fermer cette page ou rejoindre un autre stream
+                    </div>
+                    <button
+                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
+                      onClick={() => {
+                        console.log("[HLS] Resetting states");
+                        setHasLoaded(false);
+                      }}
+                    >
+                      Rejoindre un nouveau stream
+                    </button>
+                  </div>
                 </div>
               );
             }
-            
-            // Écran d'attente si connecté mais pas de host trouvé
+            // Phase live: afficher le premier remote avec video, sinon attente courte
+            if (phase === "live") {
+              const firstWithVideo = peers.find(p => p.videoTrack && !p.isLocal);
+              if (firstWithVideo) {
+                return (
+                  <div>
+                    <h2 className="text-lg font-semibold mb-4">Direct</h2>
+                    <ParticipantVideo peer={firstWithVideo} />
+                  </div>
+                );
+              }
+              // attente courte si pas encore de track reçue
+              return (
+                <div className="aspect-video bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-blue-950 dark:to-indigo-900 rounded-lg flex items-center justify-center">
+                  <div className="text-center p-8">
+                    <div className="w-20 h-20 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse">
+                      <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                    <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-2">Connexion au direct…</h3>
+                    <p className="text-gray-600 dark:text-gray-400 mb-4">Réception des pistes en cours…</p>
+                  </div>
+                </div>
+              );
+            }
+
+            // phase === "upcoming"
             return (
               <div className="aspect-video bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-blue-950 dark:to-indigo-900 rounded-lg flex items-center justify-center">
                 <div className="text-center p-8">
@@ -187,7 +279,7 @@ function HLSViewerContent() {
                     Le stream va bientôt commencer
                   </h3>
                   <p className="text-gray-600 dark:text-gray-400 mb-4">
-                    Nous attendons que l'hôte démarre son stream...
+                    Nous attendons le démarrage du stream…
                   </p>
                   <div className="flex items-center justify-center space-x-2 text-sm text-gray-500 dark:text-gray-400">
                     <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
