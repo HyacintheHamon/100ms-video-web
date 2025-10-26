@@ -7,7 +7,43 @@ import {
   HMSHLSPlayerEvents,
   type HMSHLSLayer,
 } from "@100mslive/hls-player";
-import { HMSRoomProvider, useHMSStore, selectIsConnectedToRoom, useHMSActions, selectHLSState } from "@100mslive/react-sdk";
+import { HMSRoomProvider, useHMSStore, selectIsConnectedToRoom, useHMSActions, selectHLSState, selectPeers, useVideo } from "@100mslive/react-sdk";
+
+function ParticipantVideo({ peer }: { peer: { id: string; name?: string; videoTrack?: string; isLocal?: boolean } }) {
+  const { videoRef } = useVideo({
+    trackId: peer.videoTrack,
+  });
+
+  if (!peer.videoTrack) {
+    return (
+      <div className="aspect-video bg-gray-900 rounded-lg flex items-center justify-center text-white">
+        <div className="text-center">
+          <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+            <span className="text-2xl font-bold">
+              {peer.name?.charAt(0)?.toUpperCase() || '?'}
+            </span>
+          </div>
+          <p className="text-sm text-gray-400">Camera Off</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative aspect-video bg-gray-900 rounded-lg overflow-hidden">
+      <video
+        ref={videoRef}
+        autoPlay
+        muted={peer.isLocal}
+        playsInline
+        className="w-full h-full object-cover"
+      />
+      <div className="absolute bottom-2 left-2 bg-black bg-opacity-50 text-white px-2 py-1 rounded text-sm">
+        {peer.name || 'Anonymous'}
+      </div>
+    </div>
+  );
+}
 
 function HLSViewerContent() {
   const [inputUrl, setInputUrl] = useState(
@@ -22,6 +58,7 @@ function HLSViewerContent() {
   const hmsActions = useHMSActions();
   const isConnected = useHMSStore(selectIsConnectedToRoom);
   const hlsState = useHMSStore(selectHLSState);
+  const peers = useHMSStore(selectPeers);
 
   const [isPaused, setIsPaused] = useState<boolean>(true);
   const [isLive, setIsLive] = useState<boolean>(true);
@@ -87,7 +124,7 @@ function HLSViewerContent() {
             authToken,
           });
           console.log("[HLS] Joined room successfully");
-        } catch (joinError) {
+        } catch {
           // If join fails, use direct HLS URL without joining
           console.log("[HLS] Join failed, using direct HLS URL");
           const hlsUrl = `https://liveshopping.app.100ms.live/streaming/meeting/${extractedRoomCode}.m3u8`;
@@ -98,16 +135,16 @@ function HLSViewerContent() {
       
       // HLS URL will be set by the useEffect monitoring hlsState if join succeeds
       setErrorMessage("");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("[HLS] Error:", error);
       // Fallback: use direct HLS URL
       const hlsUrl = `https://liveshopping.app.100ms.live/streaming/meeting/${extractedRoomCode}.m3u8`;
       setHlsUrl(hlsUrl);
-      setErrorMessage(error?.message || "Utilisation de l'URL HLS directe");
+      setErrorMessage((error as Error)?.message || "Utilisation de l'URL HLS directe");
     } finally {
       setIsConnecting(false);
     }
-  }, [inputUrl, hlsState, hmsActions, isConnected]);
+  }, [inputUrl, hmsActions, isConnected]);
 
   useEffect(() => {
     if (!hlsUrl) return;
@@ -253,15 +290,34 @@ function HLSViewerContent() {
         )}
       </div>
 
-      <div className="w-full max-w-3xl">
-        <video
-          ref={videoRef}
-          className="aspect-video w-full rounded-md bg-black"
-          controls={false}
-          playsInline
-          muted
-        />
-      </div>
+      {/* Host Video */}
+      {isConnected && peers.length > 0 && (
+        <div className="w-full max-w-3xl">
+          {(() => {
+            // Trouver le host (celui avec le nom "Live Stream Host" ou le rôle host)
+            const host = peers.find(peer => 
+              peer.name === "Live Stream Host" || 
+              peer.roleName === "host" ||
+              peer.info?.data?.includes('"isHost":true')
+            );
+            
+            if (host) {
+              return (
+                <div>
+                  <h2 className="text-lg font-semibold mb-4">Stream du Host</h2>
+                  <ParticipantVideo peer={host} />
+                </div>
+              );
+            }
+            
+            return (
+              <div className="text-center text-gray-500">
+                <p>Aucun host trouvé dans la room</p>
+              </div>
+            );
+          })()}
+        </div>
+      )}
 
       <div className="flex w-full max-w-3xl flex-wrap items-center gap-3">
         <button
@@ -325,17 +381,6 @@ function HLSViewerContent() {
         </div>
       ) : null}
       
-      <div className="w-full max-w-3xl rounded-md border border-blue-300 bg-blue-50 p-3 text-sm text-blue-800 dark:border-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
-        <p className="font-bold">✅ Lecteur HLS opérationnel</p>
-        <p className="mt-2">Le lecteur utilise le SDK 100ms (`@100mslive/hls-player`) et essaie de se connecter à la room.</p>
-        <p className="mt-2">📝 Mode de fonctionnement actuel :</p>
-        <ul className="list-disc list-inside mt-2 space-y-1">
-          <li>Tentative de connexion à la room via SDK</li>
-          <li>Si échec, lecture directe via URL HLS</li>
-          <li>Affichage automatique dès qu'un stream démarre</li>
-        </ul>
-        <p className="mt-3 text-xs italic">Note: Le stream peut ne pas être actif actuellement. Le lecteur se connectera automatiquement quand le stream démarre.</p>
-      </div>
     </div>
   );
 }
