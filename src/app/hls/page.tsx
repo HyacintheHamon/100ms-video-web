@@ -248,6 +248,25 @@ function HLSViewerContent() {
     } catch {}
   };
 
+  const handleLeave = async () => {
+    try {
+      if (isConnected) {
+        await hmsActions.leave();
+        console.log("[HLS] Left room successfully");
+      }
+      // Clean up HLS player
+      if (playerRef.current) {
+        playerRef.current.destroy();
+        playerRef.current = null;
+      }
+      setHlsUrl("");
+      setErrorMessage("");
+      setIsPaused(true);
+    } catch (error) {
+      console.error("[HLS] Error leaving:", error);
+    }
+  };
+
   const handleSelectLayer = (value: string) => {
     const selected = layers.find((l) => l.url === value);
     if (selected) {
@@ -341,6 +360,13 @@ function HLSViewerContent() {
         >
           Aller au direct
         </button>
+        <button
+          className="h-9 rounded-md bg-red-600 px-4 text-sm text-white hover:bg-red-700 disabled:opacity-50"
+          onClick={handleLeave}
+          disabled={!isConnected}
+        >
+          Quitter
+        </button>
         <div className="ml-auto flex items-center gap-2">
           <span className="text-sm">Volume</span>
           <input
@@ -353,27 +379,6 @@ function HLSViewerContent() {
         </div>
       </div>
 
-      <div className="flex w-full max-w-3xl flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2">
-          <span className="text-sm">Qualité</span>
-          <select
-            className="rounded-md border p-2 text-sm"
-            value={currentLayer?.url || ""}
-            onChange={(e) => handleSelectLayer(e.target.value)}
-          >
-            <option value="">Auto</option>
-            {layers.map((l) => (
-              <option key={l.url} value={l.url}>
-                {l.resolution || `${l.width || "?"}x${l.height || "?"}`} · {Math.round((l.bitrate || 0) / 1000)} kbps
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="text-sm text-zinc-600 dark:text-zinc-300">
-          {isLive ? "En direct" : "Derrière le direct"}
-          {isAutoplayBlocked ? " · Autoplay bloqué (cliquez Lecture)" : null}
-        </div>
-      </div>
 
       {errorMessage ? (
         <div className="w-full max-w-3xl rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-700 dark:bg-red-950/30 dark:text-red-300">
