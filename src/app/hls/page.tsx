@@ -154,8 +154,8 @@ function HLSViewerContent() {
         )}
       </div>
 
-      {/* Host Video */}
-      {isConnected && peers.length > 0 && (
+      {/* Host Video ou Écran d'attente */}
+      {isConnected && (
         <div className="w-full max-w-3xl">
           {(() => {
             // Trouver le host (celui avec le nom "Live Stream Host" ou le rôle host)
@@ -174,9 +174,27 @@ function HLSViewerContent() {
               );
             }
             
+            // Écran d'attente si connecté mais pas de host trouvé
             return (
-              <div className="text-center text-gray-500">
-                <p>Aucun host trouvé dans la room</p>
+              <div className="aspect-video bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-blue-950 dark:to-indigo-900 rounded-lg flex items-center justify-center">
+                <div className="text-center p-8">
+                  <div className="w-20 h-20 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse">
+                    <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-2">
+                    Le stream va bientôt commencer
+                  </h3>
+                  <p className="text-gray-600 dark:text-gray-400 mb-4">
+                    Nous attendons que l'hôte démarre son stream...
+                  </p>
+                  <div className="flex items-center justify-center space-x-2 text-sm text-gray-500 dark:text-gray-400">
+                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
+                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                  </div>
+                </div>
               </div>
             );
           })()}
