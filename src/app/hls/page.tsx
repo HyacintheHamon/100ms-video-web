@@ -340,43 +340,12 @@ function HLSViewerContent() {
 
       <div className="flex w-full max-w-3xl flex-wrap items-center gap-3">
         <button
-          className="h-9 rounded-md bg-zinc-900 px-4 text-sm text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-black"
-          onClick={handlePlay}
-          disabled={!canPlay}
-        >
-          {isPaused ? "Lecture" : "Relecture"}
-        </button>
-        <button
-          className="h-9 rounded-md border px-4 text-sm disabled:opacity-50"
-          onClick={handlePause}
-          disabled={!canPlay}
-        >
-          Pause
-        </button>
-        <button
-          className="h-9 rounded-md border px-4 text-sm disabled:opacity-50"
-          onClick={handleGoLive}
-          disabled={!canPlay}
-        >
-          Aller au direct
-        </button>
-        <button
           className="h-9 rounded-md bg-red-600 px-4 text-sm text-white hover:bg-red-700 disabled:opacity-50"
           onClick={handleLeave}
           disabled={!isConnected}
         >
           Quitter
         </button>
-        <div className="ml-auto flex items-center gap-2">
-          <span className="text-sm">Volume</span>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={volume}
-            onChange={(e) => handleVolume(Number(e.target.value))}
-          />
-        </div>
       </div>
 
 
