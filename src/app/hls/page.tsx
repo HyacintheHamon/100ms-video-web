@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  HLSPlaybackState,
-  HMSHLSPlayer,
-  HMSHLSPlayerEvents,
-  type HMSHLSLayer,
-} from "@100mslive/hls-player";
-import { HMSRoomProvider, useHMSStore, selectIsConnectedToRoom, useHMSActions, selectHLSState, selectPeers, useVideo } from "@100mslive/react-sdk";
+import { useCallback, useState } from "react";
+import { HMSRoomProvider, useHMSStore, selectIsConnectedToRoom, useHMSActions, selectPeers, useVideo, type HMSPeer } from "@100mslive/react-sdk";
+
+type HMSPeerWithInfo = HMSPeer & {
+  info?: {
+    data?: string;
+  };
+};
 
 function ParticipantVideo({ peer }: { peer: { id: string; name?: string; videoTrack?: string; isLocal?: boolean } }) {
   const { videoRef } = useVideo({
@@ -49,24 +49,13 @@ function HLSViewerContent() {
   const [inputUrl, setInputUrl] = useState(
     "https://liveshopping.app.100ms.live/streaming/meeting/yxj-ztjx-mxy"
   );
-  const [hlsUrl, setHlsUrl] = useState<string>("");
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const playerRef = useRef<HMSHLSPlayer | null>(null);
   const [roomId, setRoomId] = useState<string>("");
   const [isConnecting, setIsConnecting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string>("");
 
   const hmsActions = useHMSActions();
   const isConnected = useHMSStore(selectIsConnectedToRoom);
-  const hlsState = useHMSStore(selectHLSState);
   const peers = useHMSStore(selectPeers);
-
-  const [isPaused, setIsPaused] = useState<boolean>(true);
-  const [isLive, setIsLive] = useState<boolean>(true);
-  const [isAutoplayBlocked, setIsAutoplayBlocked] = useState<boolean>(false);
-  const [errorMessage, setErrorMessage] = useState<string>("");
-  const [layers, setLayers] = useState<HMSHLSLayer[]>([]);
-  const [currentLayer, setCurrentLayer] = useState<HMSHLSLayer | null>(null);
-  const [volume, setVolume] = useState<number>(100);
 
   // Extract room ID from URL
   function extractRoomId(url: string): string {
@@ -82,17 +71,6 @@ function HLSViewerContent() {
       return url.trim();
     }
   }
-
-  // Monitor HLS state from the SDK
-  useEffect(() => {
-    if (hlsState?.variants && hlsState.variants.length > 0) {
-      const hlsUrl = hlsState.variants[0]?.url;
-      console.log("[HLS] Got URL from SDK:", hlsUrl);
-      if (hlsUrl) {
-        setHlsUrl(hlsUrl);
-      }
-    }
-  }, [hlsState]);
 
   const handleLoad = useCallback(async () => {
     const extractedRoomCode = extractRoomId(inputUrl);
@@ -118,135 +96,21 @@ function HLSViewerContent() {
       console.log("[HLS] Got auth token, joining room...");
       
       if (!isConnected) {
-        try {
-          await hmsActions.join({
-            userName: 'HLS Viewer',
-            authToken,
-          });
-          console.log("[HLS] Joined room successfully");
-        } catch {
-          // If join fails, use direct HLS URL without joining
-          console.log("[HLS] Join failed, using direct HLS URL");
-          const hlsUrl = `https://liveshopping.app.100ms.live/streaming/meeting/${extractedRoomCode}.m3u8`;
-          setHlsUrl(hlsUrl);
-          setErrorMessage("Lecture directe HLS (sans rejoindre la room)");
-        }
+        await hmsActions.join({
+          userName: 'HLS Viewer',
+          authToken,
+        });
+        console.log("[HLS] Joined room successfully");
       }
       
-      // HLS URL will be set by the useEffect monitoring hlsState if join succeeds
       setErrorMessage("");
     } catch (error: unknown) {
       console.error("[HLS] Error:", error);
-      // Fallback: use direct HLS URL
-      const hlsUrl = `https://liveshopping.app.100ms.live/streaming/meeting/${extractedRoomCode}.m3u8`;
-      setHlsUrl(hlsUrl);
-      setErrorMessage((error as Error)?.message || "Utilisation de l'URL HLS directe");
+      setErrorMessage((error as Error)?.message || "Erreur de connexion");
     } finally {
       setIsConnecting(false);
     }
   }, [inputUrl, hmsActions, isConnected]);
-
-  useEffect(() => {
-    if (!hlsUrl) return;
-
-    console.log("[HLS] Initializing player with URL:", hlsUrl);
-
-    if (playerRef.current) {
-      try {
-        playerRef.current.pause();
-      } catch {}
-      playerRef.current = null;
-    }
-
-    const player = new HMSHLSPlayer(hlsUrl, videoRef.current!);
-    playerRef.current = player;
-
-    const onError = (_event: HMSHLSPlayerEvents, data: any) => {
-      console.error("[HLS] Error:", data);
-      setErrorMessage(
-        (data?.description as string) || (data?.message as string) || "Erreur HLS"
-      );
-    };
-    const onPlayback = (_e: HMSHLSPlayerEvents, data: { state: HLSPlaybackState }) => {
-      setIsPaused(data.state === HLSPlaybackState.paused);
-    };
-    const onAutoplay = () => setIsAutoplayBlocked(true);
-    const onNoLongerLive = (_e: HMSHLSPlayerEvents, data: { isLive: boolean }) => {
-      setIsLive(!!data?.isLive);
-    };
-    const onManifest = (
-      _e: HMSHLSPlayerEvents,
-      data: { layers: HMSHLSLayer[] }
-    ) => {
-      setLayers(data.layers || []);
-      console.log("[HLS] Manifest loaded:", data.layers);
-    };
-    const onLayerUpdated = (
-      _e: HMSHLSPlayerEvents,
-      data: { layer: HMSHLSLayer }
-    ) => {
-      setCurrentLayer(data.layer || null);
-      console.log("[HLS] Layer updated:", data.layer);
-    };
-
-    player.on(HMSHLSPlayerEvents.ERROR, onError);
-    player.on(HMSHLSPlayerEvents.PLAYBACK_STATE, onPlayback);
-    player.on(HMSHLSPlayerEvents.AUTOPLAY_BLOCKED, onAutoplay);
-    player.on(HMSHLSPlayerEvents.SEEK_POS_BEHIND_LIVE_EDGE, onNoLongerLive);
-    player.on(HMSHLSPlayerEvents.MANIFEST_LOADED, onManifest);
-    player.on(HMSHLSPlayerEvents.LAYER_UPDATED, onLayerUpdated);
-
-    try {
-      player.setVolume(volume);
-    } catch (e) {
-      console.error("[HLS] Error setting volume:", e);
-    }
-
-    return () => {
-      try {
-        player.off(HMSHLSPlayerEvents.ERROR, onError);
-        player.off(HMSHLSPlayerEvents.PLAYBACK_STATE, onPlayback);
-        player.off(HMSHLSPlayerEvents.AUTOPLAY_BLOCKED, onAutoplay);
-        player.off(HMSHLSPlayerEvents.SEEK_POS_BEHIND_LIVE_EDGE, onNoLongerLive);
-        player.off(HMSHLSPlayerEvents.MANIFEST_LOADED, onManifest);
-        player.off(HMSHLSPlayerEvents.LAYER_UPDATED, onLayerUpdated);
-        player.pause();
-      } catch (e) {
-        console.error("[HLS] Error during cleanup:", e);
-      }
-      if (playerRef.current === player) playerRef.current = null;
-    };
-  }, [hlsUrl, volume]);
-
-  const canPlay = useMemo(() => !!hlsUrl && !!playerRef.current, [hlsUrl]);
-
-  const handlePlay = async () => {
-    try {
-      await playerRef.current?.play();
-      setIsAutoplayBlocked(false);
-    } catch (e: any) {
-      setErrorMessage(e?.message || "Impossible de démarrer la lecture");
-    }
-  };
-
-  const handlePause = () => {
-    try {
-      playerRef.current?.pause();
-    } catch {}
-  };
-
-  const handleGoLive = async () => {
-    try {
-      await playerRef.current?.seekToLivePosition();
-    } catch {}
-  };
-
-  const handleVolume = (v: number) => {
-    setVolume(v);
-    try {
-      playerRef.current?.setVolume(v);
-    } catch {}
-  };
 
   const handleLeave = async () => {
     try {
@@ -254,25 +118,9 @@ function HLSViewerContent() {
         await hmsActions.leave();
         console.log("[HLS] Left room successfully");
       }
-      // Clean up HLS player
-      if (playerRef.current) {
-        playerRef.current.destroy();
-        playerRef.current = null;
-      }
-      setHlsUrl("");
       setErrorMessage("");
-      setIsPaused(true);
     } catch (error) {
       console.error("[HLS] Error leaving:", error);
-    }
-  };
-
-  const handleSelectLayer = (value: string) => {
-    const selected = layers.find((l) => l.url === value);
-    if (selected) {
-      try {
-        playerRef.current?.setLayer(selected);
-      } catch {}
     }
   };
 
@@ -301,9 +149,6 @@ function HLSViewerContent() {
         {roomId && (
           <p className="text-xs text-zinc-500">Room ID: {roomId}</p>
         )}
-        {hlsUrl ? (
-          <p className="text-xs text-zinc-500">URL HLS: {hlsUrl}</p>
-        ) : null}
         {isConnected && (
           <p className="text-xs text-green-600 dark:text-green-400">✓ Connecté à la room</p>
         )}
@@ -317,7 +162,7 @@ function HLSViewerContent() {
             const host = peers.find(peer => 
               peer.name === "Live Stream Host" || 
               peer.roleName === "host" ||
-              peer.info?.data?.includes('"isHost":true')
+              (peer as HMSPeerWithInfo).info?.data?.includes('"isHost":true')
             );
             
             if (host) {
@@ -347,7 +192,6 @@ function HLSViewerContent() {
           Quitter
         </button>
       </div>
-
 
       {errorMessage ? (
         <div className="w-full max-w-3xl rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-700 dark:bg-red-950/30 dark:text-red-300">
